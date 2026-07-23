@@ -78,12 +78,7 @@ st.divider()
 st.subheader("🔍 Tra cứu khách hàng")
 
 with st.form("lookup_form"):
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        customer_name = st.text_input("Tên khách hàng", placeholder="VD: Lê Quốc A")
-    with col2:
-        customer_id_input = st.text_input("Mã khách hàng (ID)", placeholder="VD: 2911")
-
+    customer_id_input = st.text_input("Mã khách hàng (ID)", placeholder="VD: 2911")
     submitted = st.form_submit_button("🔎 Tra cứu", use_container_width=True)
 
 if submitted:
@@ -103,11 +98,7 @@ if submitted:
     st.subheader("📋 Thông tin khách hàng")
     st.caption("Dữ liệu do hệ thống tự động tra cứu, không thể chỉnh sửa.")
 
-    info_col1, info_col2 = st.columns(2)
-    with info_col1:
-        st.markdown(f"**Tên khách hàng:** {customer_name if customer_name else '(chưa nhập)'}")
-    with info_col2:
-        st.markdown(f"**Mã khách hàng:** {customer_id}")
+    st.markdown(f"**Mã khách hàng:** {customer_id}")
 
     st.markdown("##### Tổng quan khoản vay")
     m1, m2, m3, m4 = st.columns(4)
