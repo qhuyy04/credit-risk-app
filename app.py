@@ -1,10 +1,8 @@
-
 from pathlib import Path
 
 import joblib
 import pandas as pd
 import streamlit as st
-
 
 st.set_page_config(
     page_title="Hệ thống Đánh giá Rủi ro Tín dụng",
@@ -13,262 +11,191 @@ st.set_page_config(
 )
 
 BUNDLE_PATH = Path("credit_risk_pipeline.pkl")
-
-FEATURE_LABELS = {
-    "CREDIT_CARD_NUMBER_OF_LATE_PAYMENT": "Số lần thanh toán thẻ tín dụng trễ hạn",
-    "ENQUIRIES_3M": "Số lần tra cứu tín dụng trong 3 tháng",
-    "ENQUIRIES_12M": "Số lần tra cứu tín dụng trong 12 tháng",
-    "SHORT_TERM_COUNT": "Số khoản vay ngắn hạn",
-    "OUTSTANDING_BAL_ALL_CURRENT": "Tổng dư nợ hiện tại (VND)",
-    "NUM_NEW_LOAN_TAKEN_3M": "Số khoản vay mới trong 3 tháng",
-    "NUMBER_OF_LOANS": "Tổng số khoản vay",
-    "CREDIT_CARD_MONTH_SINCE_30DPD_FLAG": (
-        "Có lịch sử quá hạn thẻ tín dụng 30 ngày (0: Không, 1: Có)"
-    ),
-    "CREDIT_CARD_MONTH_SINCE_90DPD_FLAG": (
-        "Có lịch sử quá hạn thẻ tín dụng 90 ngày (0: Không, 1: Có)"
-    ),
-    "CC_TO_ALL_LOAN_RATIO": "Tỷ lệ thẻ tín dụng trên tổng khoản vay",
-    "SHORT_TERM_RATIO": "Tỷ lệ khoản vay ngắn hạn",
-}
-
-DPD_RAW_COLS = [
-    "CREDIT_CARD_MONTH_SINCE_10DPD",
-    "CREDIT_CARD_MONTH_SINCE_30DPD",
-    "CREDIT_CARD_MONTH_SINCE_60DPD",
-    "CREDIT_CARD_MONTH_SINCE_90DPD",
-]
+LOOKUP_PATH = Path("customer_lookup.csv")
 
 
 @st.cache_resource
-def load_bundle(bundle_path: str, modified_time: float):
-    """modified_time giúp Streamlit tự nạp lại khi thay file model."""
-    return joblib.load(bundle_path)
+def load_bundle():
+    if not BUNDLE_PATH.exists():
+        st.error(f"Không tìm thấy file model: {BUNDLE_PATH}")
+        st.stop()
+    return joblib.load(BUNDLE_PATH)
 
 
-if not BUNDLE_PATH.exists():
-    st.error(
-        "Không tìm thấy `credit_risk_pipeline.pkl`. "
-        "Hãy chạy Cell 11 và đặt file này cùng thư mục với `app.py`."
-    )
-    st.stop()
+@st.cache_data
+def load_lookup():
+    if not LOOKUP_PATH.exists():
+        st.error(f"Không tìm thấy file dữ liệu khách hàng: {LOOKUP_PATH}")
+        st.stop()
+    df = pd.read_csv(LOOKUP_PATH)
+    df["customer_id"] = df["customer_id"].astype("Int64")
+    return df.set_index("customer_id")
 
-bundle = load_bundle(
-    str(BUNDLE_PATH),
-    BUNDLE_PATH.stat().st_mtime,
-)
+
+bundle = load_bundle()
+lookup_df = load_lookup()
 
 model = bundle["model"]
-features = bundle["selected_features"]
+selected_features = bundle["selected_features"]
 imputer = bundle["imputer"]
 scaler = bundle["scaler"]
 winsor_bounds = bundle["winsor_bounds"]
-balance_offset = bundle["balance_offset"]
-dpd_sentinel = bundle["dpd_sentinel"]
 bad_label = bundle["bad_label"]
-decision_threshold = bundle["decision_threshold"]
-input_defaults = bundle["input_defaults"]
+decision_threshold = bundle.get("decision_threshold", 0.5)
 
 
-def friendly_feature_name(feature: str) -> str:
-    return FEATURE_LABELS.get(feature, feature.replace("_", " ").title())
-
-
-def clean_base_input(data: pd.DataFrame) -> pd.DataFrame:
-    """Tái tạo các bước làm sạch cố định đã dùng khi train."""
-    cleaned = data.copy()
-
-    # Trừ offset cho các biến dư nợ.
-    for col in cleaned.columns:
-        if "OUTSTANDING_BAL" in col:
-            cleaned[col] = pd.to_numeric(
-                cleaned[col],
-                errors="coerce",
-            ) - balance_offset
-
-    # Hỗ trợ nếu model có dùng các cột DPD thô.
-    for col in DPD_RAW_COLS:
-        if col not in cleaned.columns:
-            continue
-
-        original_values = cleaned[col]
-        flag_col = f"{col}_FLAG"
-
-        if flag_col in features:
-            cleaned[flag_col] = (
-                original_values.notna()
-                & original_values.ne(dpd_sentinel)
-            ).astype(float)
-
-        cleaned[col] = original_values.mask(
-            original_values.eq(dpd_sentinel),
-            pd.NA,
-        )
-
-    return cleaned
-
-
-def apply_winsorization(data: pd.DataFrame) -> pd.DataFrame:
-    """Dùng đúng ngưỡng outlier đã học từ tập train."""
-    transformed = data.copy()
+def predict_risk(row: pd.Series) -> float:
+    """Trả về xác suất khách hàng rủi ro (nợ xấu), dùng đúng pipeline lúc train."""
+    input_df = pd.DataFrame([row[selected_features]])
 
     for col, (lower, upper) in winsor_bounds.items():
-        if col in transformed.columns:
-            transformed[col] = transformed[col].clip(lower, upper)
+        if col in input_df.columns:
+            input_df[col] = input_df[col].clip(lower, upper)
 
-    return transformed
+    input_df = input_df.reindex(columns=selected_features)
+    X = scaler.transform(imputer.transform(input_df))
+    proba = model.predict_proba(X)[0]
+    bad_index = list(model.classes_).index(bad_label)
+    return float(proba[bad_index])
 
 
-def preprocess_for_model(user_input: dict) -> pd.DataFrame:
-    """Đầu vào người dùng → dữ liệu đúng định dạng model đã train."""
-    input_df = pd.DataFrame([user_input]).reindex(columns=features)
+def fmt_money(value) -> str:
+    if pd.isna(value):
+        return "Không có dữ liệu"
+    return f"{value:,.0f} VNĐ".replace(",", ".")
 
-    cleaned_df = clean_base_input(input_df)
-    winsorized_df = apply_winsorization(cleaned_df)
 
-    # Thứ tự cột phải khớp chính xác thứ tự lúc train.
-    model_input = winsorized_df.reindex(columns=features)
+def fmt_count(value) -> str:
+    if pd.isna(value):
+        return "0"
+    return f"{value:,.0f}".replace(",", ".")
 
-    imputed_values = imputer.transform(model_input)
-    scaled_values = scaler.transform(imputed_values)
 
-    return pd.DataFrame(
-        scaled_values,
-        columns=features,
+st.title("🏦 Hệ thống Đánh giá Rủi ro Tín dụng")
+st.caption("Tra cứu hồ sơ khách hàng theo mã khách hàng và đánh giá khả năng rủi ro.")
+
+st.divider()
+st.subheader("🔍 Tra cứu khách hàng")
+
+with st.form("lookup_form"):
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        customer_name = st.text_input("Tên khách hàng", placeholder="VD: Lê Quốc A")
+    with col2:
+        customer_id_input = st.text_input("Mã khách hàng (ID)", placeholder="VD: 2911")
+
+    submitted = st.form_submit_button("🔎 Tra cứu", use_container_width=True)
+
+if submitted:
+    if not customer_id_input.strip().isdigit():
+        st.error("Mã khách hàng phải là số. Vui lòng nhập lại.")
+        st.stop()
+
+    customer_id = int(customer_id_input.strip())
+
+    if customer_id not in lookup_df.index:
+        st.error(f"Không tìm thấy khách hàng với mã **{customer_id}** trong hệ thống.")
+        st.stop()
+
+    row = lookup_df.loc[customer_id]
+
+    st.divider()
+    st.subheader("📋 Thông tin khách hàng")
+    st.caption("Dữ liệu do hệ thống tự động tra cứu, không thể chỉnh sửa.")
+
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        st.markdown(f"**Tên khách hàng:** {customer_name if customer_name else '(chưa nhập)'}")
+    with info_col2:
+        st.markdown(f"**Mã khách hàng:** {customer_id}")
+
+    st.markdown("##### Tổng quan khoản vay")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Tổng số khoản vay", fmt_count(row["NUMBER_OF_LOANS"]))
+    m2.metric("Vay ngắn hạn", fmt_count(row["SHORT_TERM_COUNT"]))
+    m3.metric("Vay trung hạn", fmt_count(row["MID_TERM_COUNT"]))
+    m4.metric("Vay dài hạn", fmt_count(row["LONG_TERM_COUNT"]))
+
+    st.metric("Tổng dư nợ hiện tại", fmt_money(row["OUTSTANDING_BAL_ALL_CURRENT"]))
+
+    st.markdown("##### Khoản vay mới phát sinh")
+    new_loan_table = pd.DataFrame(
+        {
+            "Kỳ hạn": ["3 tháng", "6 tháng", "9 tháng", "12 tháng"],
+            "Tổng": [
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_3M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_6M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_9M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_12M"]),
+            ],
+            "Từ ngân hàng": [
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_BANK_3M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_BANK_6M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_BANK_9M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_BANK_12M"]),
+            ],
+            "Từ phi ngân hàng": [
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_NON_BANK_3M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_NON_BANK_6M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_NON_BANK_9M"]),
+                fmt_count(row["NUM_NEW_LOAN_TAKEN_NON_BANK_12M"]),
+            ],
+        }
     )
+    st.dataframe(new_loan_table, hide_index=True, use_container_width=True)
 
+    st.markdown("##### Lịch sử trễ hạn thanh toán (thẻ tín dụng)")
 
-def set_profile(overrides: dict):
-    """Cập nhật hồ sơ mẫu trước khi các input widget được tạo."""
-    for feature in features:
-        key = f"input_{feature}"
-        default_value = float(input_defaults.get(feature, 0.0))
-        st.session_state[key] = float(
-            overrides.get(feature, default_value)
+    def fmt_dpd(months, flag):
+        if pd.isna(flag):
+            return "Không có dữ liệu"
+        if flag == 0:
+            return "Chưa từng trễ hạn"
+        if pd.isna(months):
+            return "Có trễ hạn (không rõ số tháng)"
+        return f"Trễ hạn — cách đây {months:.0f} tháng"
+
+    dpd_table = pd.DataFrame(
+        {
+            "Mức độ trễ hạn": ["10 ngày", "30 ngày", "60 ngày", "90 ngày"],
+            "Tình trạng": [
+                fmt_dpd(row["CREDIT_CARD_MONTH_SINCE_10DPD"], row["CREDIT_CARD_MONTH_SINCE_10DPD_FLAG"]),
+                fmt_dpd(row["CREDIT_CARD_MONTH_SINCE_30DPD"], row["CREDIT_CARD_MONTH_SINCE_30DPD_FLAG"]),
+                fmt_dpd(row["CREDIT_CARD_MONTH_SINCE_60DPD"], row["CREDIT_CARD_MONTH_SINCE_60DPD_FLAG"]),
+                fmt_dpd(row["CREDIT_CARD_MONTH_SINCE_90DPD"], row["CREDIT_CARD_MONTH_SINCE_90DPD_FLAG"]),
+            ],
+        }
+    )
+    st.dataframe(dpd_table, hide_index=True, use_container_width=True)
+    st.metric("Tổng số lần trễ hạn thanh toán", fmt_count(row["CREDIT_CARD_NUMBER_OF_LATE_PAYMENT"]))
+
+    st.divider()
+    st.subheader("⚖️ Đánh giá rủi ro")
+
+    probability = predict_risk(row)
+    is_high_risk = probability >= decision_threshold
+
+    risk_col1, risk_col2 = st.columns(2)
+    with risk_col1:
+        st.metric("Xác suất rủi ro (nợ xấu)", f"{probability * 100:.1f}%")
+    with risk_col2:
+        st.metric("Ngưỡng quyết định", f"{decision_threshold * 100:.0f}%")
+
+    if is_high_risk:
+        st.error(
+            "🔴 **KHÁCH HÀNG RỦI RO CAO** — Không nên cấp thêm khoản vay mới. "
+            "Cần xem xét kỹ hồ sơ và lịch sử tín dụng trước khi ra quyết định."
+        )
+    else:
+        st.success(
+            "🟢 **KHÁCH HÀNG RỦI RO THẤP** — Có thể xem xét cấp khoản vay theo "
+            "quy trình thẩm định thông thường."
         )
 
-
-# Giá trị này chỉ là minh họa giao diện.
-# Quyết định cuối cùng luôn do model dự đoán.
-safe_profile = {
-    "CREDIT_CARD_NUMBER_OF_LATE_PAYMENT": 0,
-    "ENQUIRIES_3M": 1,
-    "ENQUIRIES_12M": 2,
-    "SHORT_TERM_COUNT": 1,
-    "OUTSTANDING_BAL_ALL_CURRENT": 10_000_000,
-    "NUM_NEW_LOAN_TAKEN_3M": 0,
-    "NUMBER_OF_LOANS": 2,
-    "CREDIT_CARD_MONTH_SINCE_30DPD_FLAG": 0,
-    "CREDIT_CARD_MONTH_SINCE_90DPD_FLAG": 0,
-    "CC_TO_ALL_LOAN_RATIO": 0.20,
-    "SHORT_TERM_RATIO": 0.30,
-}
-
-risk_profile = {
-    "CREDIT_CARD_NUMBER_OF_LATE_PAYMENT": 10,
-    "ENQUIRIES_3M": 15,
-    "ENQUIRIES_12M": 35,
-    "SHORT_TERM_COUNT": 10,
-    "OUTSTANDING_BAL_ALL_CURRENT": 500_000_000,
-    "NUM_NEW_LOAN_TAKEN_3M": 8,
-    "NUMBER_OF_LOANS": 15,
-    "CREDIT_CARD_MONTH_SINCE_30DPD_FLAG": 1,
-    "CREDIT_CARD_MONTH_SINCE_90DPD_FLAG": 1,
-    "CC_TO_ALL_LOAN_RATIO": 0.90,
-    "SHORT_TERM_RATIO": 0.95,
-}
-
-
-# Khởi tạo session state
-for feature in features:
-    key = f"input_{feature}"
-
-    if key not in st.session_state:
-        st.session_state[key] = float(
-            input_defaults.get(feature, 0.0)
-        )
-
-
-st.title("🏦 HỆ THỐNG ĐÁNH GIÁ RỦI RO TÍN DỤNG")
-
-st.write(
-    f"""
-    Hệ thống sử dụng mô hình **{bundle["model_name"]}** để ước tính
-    xác suất khách hàng thuộc nhóm **nợ xấu**.
-
-    Ngưỡng từ chối hiện tại: **{decision_threshold:.0%}**.
-    """
-)
-
-st.divider()
-
-st.subheader("⚡ Hồ sơ mẫu")
-
-col_safe, col_risk = st.columns(2)
-
-with col_safe:
-    if st.button("🟢 Hồ sơ rủi ro thấp", use_container_width=True):
-        set_profile(safe_profile)
-
-with col_risk:
-    if st.button("🔴 Hồ sơ rủi ro cao", use_container_width=True):
-        set_profile(risk_profile)
-
-st.divider()
-st.subheader("📄 Thông tin khách hàng")
-
-user_input = {}
-
-for feature in features:
-    widget_key = f"input_{feature}"
-
-    is_count_like = any(
-        text in feature
-        for text in [
-            "COUNT",
-            "NUMBER_OF",
-            "ENQUIRIES",
-            "NUM_NEW_LOAN",
-            "_FLAG",
-        ]
-    )
-
-    user_input[feature] = st.number_input(
-        label=friendly_feature_name(feature),
-        min_value=0.0,
-        step=1.0 if is_count_like else 0.01,
-        format="%.0f" if is_count_like else "%.4f",
-        key=widget_key,
+    st.caption(
+        "Đánh giá dựa trên mô hình học máy huấn luyện từ dữ liệu lịch sử tín dụng. "
+        "Kết quả chỉ mang tính tham khảo, không thay thế cho quy trình thẩm định chính thức."
     )
 
 st.divider()
-
-if st.button("🚀 PHÂN TÍCH", use_container_width=True):
-    try:
-        X_input = preprocess_for_model(user_input)
-
-        probabilities = model.predict_proba(X_input)[0]
-        bad_index = list(model.classes_).index(bad_label)
-        bad_probability = float(probabilities[bad_index])
-
-        st.subheader("📊 KẾT QUẢ")
-        st.metric("Xác suất nợ xấu", f"{bad_probability:.2%}")
-        st.progress(int(round(bad_probability * 100)))
-
-        if bad_probability >= decision_threshold:
-            st.error("### 🔴 TỪ CHỐI CẤP TÍN DỤNG")
-            st.write(
-                "Khách hàng thuộc nhóm **rủi ro cao** "
-                "theo ngưỡng quyết định hiện tại."
-            )
-        else:
-            st.success("### 🟢 PHÊ DUYỆT HỒ SƠ")
-            st.write(
-                "Khách hàng thuộc nhóm **rủi ro thấp** "
-                "theo ngưỡng quyết định hiện tại."
-            )
-
-    except Exception as error:
-        st.error("Không thể phân tích hồ sơ.")
-        st.exception(error)
-
+st.caption("Hệ thống nội bộ — chỉ dùng cho mục đích tra cứu và hỗ trợ ra quyết định.")
