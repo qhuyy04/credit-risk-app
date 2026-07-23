@@ -226,7 +226,7 @@ if submitted:
     st.metric("Tổng số lần trễ hạn thanh toán", fmt_count(row["CREDIT_CARD_NUMBER_OF_LATE_PAYMENT"]))
 
     st.divider()
-    st.subheader("⚖️ Đánh giá rủi ro")
+    st.subheader(" Đánh giá rủi ro")
 
     probability = predict_risk(row)
     is_high_risk = probability >= decision_threshold
