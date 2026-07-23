@@ -6,7 +6,6 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Hệ thống Đánh giá Rủi ro Tín dụng",
-    page_icon="🏦",
     layout="centered",
 )
 
@@ -71,15 +70,15 @@ def fmt_count(value) -> str:
     return f"{value:,.0f}".replace(",", ".")
 
 
-st.title("🏦 Hệ thống Đánh giá Rủi ro Tín dụng")
+st.title("Hệ thống Đánh giá Rủi ro Tín dụng")
 st.caption("Tra cứu hồ sơ khách hàng theo mã khách hàng và đánh giá khả năng rủi ro.")
 
 st.divider()
-st.subheader("🔍 Tra cứu khách hàng")
+st.subheader("Tra cứu khách hàng")
 
 with st.form("lookup_form"):
     customer_id_input = st.text_input("Mã khách hàng (ID)", placeholder="VD: 2911")
-    submitted = st.form_submit_button("🔎 Tra cứu", use_container_width=True)
+    submitted = st.form_submit_button("Tra cứu", use_container_width=True)
 
 if submitted:
     if not customer_id_input.strip().isdigit():
@@ -95,7 +94,7 @@ if submitted:
     row = lookup_df.loc[customer_id]
 
     st.divider()
-    st.subheader("📋 Thông tin khách hàng")
+    st.subheader("Thông tin khách hàng")
     st.caption("Dữ liệu do hệ thống tự động tra cứu, không thể chỉnh sửa.")
 
     st.markdown(f"**Mã khách hàng:** {customer_id}")
@@ -240,12 +239,12 @@ if submitted:
 
     if is_high_risk:
         st.error(
-            "🔴 **KHÁCH HÀNG RỦI RO CAO** — Không nên cấp thêm khoản vay mới. "
+            " **KHÁCH HÀNG RỦI RO CAO** — Không nên cấp thêm khoản vay mới. "
             "Cần xem xét kỹ hồ sơ và lịch sử tín dụng trước khi ra quyết định."
         )
     else:
         st.success(
-            "🟢 **KHÁCH HÀNG RỦI RO THẤP** — Có thể xem xét cấp khoản vay theo "
+            " **KHÁCH HÀNG RỦI RO THẤP** — Có thể xem xét cấp khoản vay theo "
             "quy trình thẩm định thông thường."
         )
 
