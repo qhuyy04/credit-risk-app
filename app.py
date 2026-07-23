@@ -107,7 +107,9 @@ if submitted:
     m3.metric("Vay trung hạn", fmt_count(row["MID_TERM_COUNT"]))
     m4.metric("Vay dài hạn", fmt_count(row["LONG_TERM_COUNT"]))
 
-    st.metric("Tổng dư nợ hiện tại", fmt_money(row["OUTSTANDING_BAL_ALL_CURRENT"]))
+    bal1, bal2 = st.columns(2)
+    bal1.metric("Tổng dư nợ hiện tại (vay + thẻ)", fmt_money(row["OUTSTANDING_BAL_ALL_CURRENT"]))
+    bal2.metric("Dư nợ vay hiện tại", fmt_money(row["OUTSTANDING_BAL_LOAN_CURRENT"]))
 
     st.markdown("##### Khoản vay mới phát sinh")
     new_loan_table = pd.DataFrame(
@@ -134,6 +136,70 @@ if submitted:
         }
     )
     st.dataframe(new_loan_table, hide_index=True, use_container_width=True)
+
+    st.markdown("##### Thẻ tín dụng")
+    cc1, cc2, cc3 = st.columns(3)
+    cc1.metric("Tổng số thẻ tín dụng", fmt_count(row["NUMBER_OF_CREDIT_CARDS"]))
+    cc2.metric("Từ ngân hàng", fmt_count(row["NUMBER_OF_CREDIT_CARDS_BANK"]))
+    cc3.metric("Từ phi ngân hàng", fmt_count(row["NUMBER_OF_CREDIT_CARDS_NON_BANK"]))
+
+    cc_bal_table = pd.DataFrame(
+        {
+            "Thời điểm": ["Hiện tại", "3 tháng trước", "6 tháng trước", "9 tháng trước", "12 tháng trước"],
+            "Dư nợ thẻ tín dụng": [
+                fmt_money(row["OUTSTANDING_BAL_CC_CURRENT"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_3M"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_6M"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_9M"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_12M"]),
+            ],
+        }
+    )
+    st.dataframe(cc_bal_table, hide_index=True, use_container_width=True)
+
+    st.markdown("##### Quan hệ tín dụng")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Tổng số mối quan hệ", fmt_count(row["NUMBER_OF_RELATIONSHIP"]))
+    r2.metric("Với ngân hàng", fmt_count(row["NUMBER_OF_RELATIONSHIP_BANK"]))
+    r3.metric("Với phi ngân hàng", fmt_count(row["NUMBER_OF_RELATIONSHIP_NON_BANK"]))
+
+    st.markdown("##### Tra cứu tín dụng chi tiết")
+    enq_table = pd.DataFrame(
+        {
+            "Kỳ hạn": ["3 tháng", "6 tháng", "9 tháng", "12 tháng"],
+            "Tổng lượt tra cứu": [
+                fmt_count(row["ENQUIRIES_3M"]),
+                fmt_count(row["ENQUIRIES_6M"]),
+                fmt_count(row["ENQUIRIES_9M"]),
+                fmt_count(row["ENQUIRIES_12M"]),
+            ],
+            "Tra cứu vay": [
+                fmt_count(row["ENQUIRIES_FOR_LOAN_3M"]),
+                fmt_count(row["ENQUIRIES_FOR_LOAN_6M"]),
+                fmt_count(row["ENQUIRIES_FOR_LOAN_9M"]),
+                fmt_count(row["ENQUIRIES_FOR_LOAN_12M"]),
+            ],
+            "Tra cứu thẻ": [
+                fmt_count(row["ENQUIRIES_FOR_CC_3M"]),
+                fmt_count(row["ENQUIRIES_FOR_CC_6M"]),
+                fmt_count(row["ENQUIRIES_FOR_CC_9M"]),
+                fmt_count(row["ENQUIRIES_FOR_CC_12M"]),
+            ],
+            "Từ ngân hàng": [
+                fmt_count(row["ENQUIRIES_FROM_BANK_3M"]),
+                fmt_count(row["ENQUIRIES_FROM_BANK_6M"]),
+                fmt_count(row["ENQUIRIES_FROM_BANK_9M"]),
+                fmt_count(row["ENQUIRIES_FROM_BANK_12M"]),
+            ],
+            "Từ phi ngân hàng": [
+                fmt_count(row["ENQUIRIES_FROM_NON_BANK_3M"]),
+                fmt_count(row["ENQUIRIES_FROM_NON_BANK_6M"]),
+                fmt_count(row["ENQUIRIES_FROM_NON_BANK_9M"]),
+                fmt_count(row["ENQUIRIES_FROM_NON_BANK_12M"]),
+            ],
+        }
+    )
+    st.dataframe(enq_table, hide_index=True, use_container_width=True)
 
     st.markdown("##### Lịch sử trễ hạn thanh toán (thẻ tín dụng)")
 
