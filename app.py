@@ -108,8 +108,8 @@ if submitted:
     m4.metric("Vay dài hạn", fmt_count(row["LONG_TERM_COUNT"]))
 
     bal1, bal2 = st.columns(2)
-    bal1.metric("Tổng dư nợ hiện tại (vay + thẻ)", fmt_money(row["OUTSTANDING_BAL_ALL_CURRENT"]))
-    bal2.metric("Dư nợ vay hiện tại", fmt_money(row["OUTSTANDING_BAL_LOAN_CURRENT"]))
+    bal1.metric("Tổng dư nợ hiện tại (vay + thẻ)", fmt_money(row["OUTSTANDING_BAL_ALL_CURRENT_RAW"]))
+    bal2.metric("Dư nợ vay hiện tại", fmt_money(row["OUTSTANDING_BAL_LOAN_CURRENT_RAW"]))
 
     st.markdown("##### Khoản vay mới phát sinh")
     new_loan_table = pd.DataFrame(
@@ -147,11 +147,11 @@ if submitted:
         {
             "Thời điểm": ["Hiện tại", "3 tháng trước", "6 tháng trước", "9 tháng trước", "12 tháng trước"],
             "Dư nợ thẻ tín dụng": [
-                fmt_money(row["OUTSTANDING_BAL_CC_CURRENT"]),
-                fmt_money(row["OUTSTANDING_BAL_CC_3M"]),
-                fmt_money(row["OUTSTANDING_BAL_CC_6M"]),
-                fmt_money(row["OUTSTANDING_BAL_CC_9M"]),
-                fmt_money(row["OUTSTANDING_BAL_CC_12M"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_CURRENT_RAW"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_3M_RAW"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_6M_RAW"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_9M_RAW"]),
+                fmt_money(row["OUTSTANDING_BAL_CC_12M_RAW"]),
             ],
         }
     )
